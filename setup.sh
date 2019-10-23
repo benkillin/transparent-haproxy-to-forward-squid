@@ -1,11 +1,14 @@
+#!/bin/bash
 
 modprobe xt_TPROXY
 sysctl net.ipv4.ip_nonlocal_bind
 sysctl net.ipv4.ip_nonlocal_bind=1
 
 iptables -t mangle -N DIVERT
-iptables -t mangle -A PREROUTING -p tcp -m socket -j DIVERT
+#iptables -t mangle -A PREROUTING -i docker0 -p tcp -m socket -j DIVERT
+iptables -t mangle -A PREROUTING -i docker0 -p tcp -j DIVERT
 iptables -t mangle -A DIVERT -j MARK --set-mark 1
+iptables -t mangle -A DIVERT -p tcp -j TPROXY --tproxy-mark 1 --on-port 32222 --on-ip 127.0.0.1 # the packetz just disappear at this point.
 iptables -t mangle -A DIVERT -j ACCEPT
 
 ip rule add fwmark 1 lookup 100
@@ -52,16 +55,18 @@ echo done setting up.
 termterm () {
     echo shutting down...
 
-    docker container stop squid;
-    docker container stop haproxy; 
+    docker container stop haproxy
+    docker container stop squid
     docker network rm cachenet
 
     ip route del local 0.0.0.0/0 dev lo table 100
     ip rule del fwmark 1 lookup 100
+
+    iptables -t mangle -F PREROUTING
+    iptables -t mangle -D PREROUTING -i docker0 -p tcp -m socket -j DIVERT
     iptables -t mangle -F DIVERT
     iptables -t mangle -X DIVERT
-    iptables -t mangle -D PREROUTING -p tcp -m socket -j DIVERT
-
+    
     ip rule show
     ip route show table 100
     ip route show
@@ -77,7 +82,7 @@ trap termterm 1 2 3 6 9 10 12 14 15
 docker container logs --follow squid &
 docker container logs --follow haproxy
 
-tail -f /dev/null
+#tail -f /dev/null
 
-sleep 15;
+sleep 30;
 termterm
